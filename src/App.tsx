@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import HTMLFlipBook from 'react-pageflip';
-import { BookOpen, Upload, ChevronLeft, ChevronRight, Share2, Loader2, Copy, Check, Info } from 'lucide-react';
+import { BookOpen, Upload, ChevronLeft, ChevronRight, Share2, Loader2, Info } from 'lucide-react';
 import './index.css';
 
 // Set up the PDF.js worker
@@ -15,7 +15,6 @@ function App() {
   const [dragActive, setDragActive] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   
   const flipBookRef = useRef<any>(null);
@@ -111,7 +110,7 @@ function App() {
         canvas.height = viewport.height;
         canvas.width = viewport.width;
 
-        const renderContext = {
+        const renderContext: any = {
           canvasContext: context,
           viewport: viewport,
         };
