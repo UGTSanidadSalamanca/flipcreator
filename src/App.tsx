@@ -212,13 +212,12 @@ function App() {
   };
 
   const shareFlipbook = () => {
-    if (!shareUrl) return;
-
+    const url = window.location.href;
     if (navigator.share) {
       navigator.share({
         title: 'Mi Flipbook Interactivo',
         text: 'Mira este documento convertido en un libro interactivo.',
-        url: shareUrl,
+        url: url,
       }).catch(console.error);
     } else {
       copyToClipboard();
@@ -226,10 +225,9 @@ function App() {
   };
 
   const copyToClipboard = () => {
-    if (!shareUrl) return;
-    navigator.clipboard.writeText(shareUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
+    const url = window.location.href;
+    navigator.clipboard.writeText(url);
+    alert("¡Enlace copiado al portapapeles!");
   };
 
   return (
