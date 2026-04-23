@@ -229,9 +229,9 @@ function App() {
 ${slides}
   </div>
   <div class="controls">
-    <button class="btn" id="prev" disabled>◀ Anterior</button>
+    <button class="btn" id="prev" disabled ontouchend="this.click()">◀ Anterior</button>
     <span class="indicator" id="ind">1 / ${pages.length}</span>
-    <button class="btn" id="next">Siguiente ▶</button>
+    <button class="btn" id="next" ontouchend="this.click()">Siguiente ▶</button>
   </div>
   <div class="footer">Creado con FlipCreator PRO · ${pages.length} páginas · Abre este archivo en cualquier navegador</div>
   <script>
@@ -246,19 +246,20 @@ ${slides}
       document.getElementById('prev').disabled = current === 0;
       document.getElementById('next').disabled = current === total - 1;
     }
-    document.getElementById('prev').addEventListener('click', function(){ show(current - 1); });
-    document.getElementById('next').addEventListener('click', function(){ show(current + 1); });
+    document.getElementById('prev').addEventListener('click', function(e){ e.preventDefault(); show(current - 1); });
+    document.getElementById('next').addEventListener('click', function(e){ e.preventDefault(); show(current + 1); });
     document.addEventListener('keydown', function(e){
       if (e.key === 'ArrowRight') show(current + 1);
       if (e.key === 'ArrowLeft') show(current - 1);
     });
-    // Touch swipe support
+    // Swipe only on the slides container (not buttons)
+    var slidesEl = document.getElementById('slides');
     var startX = 0;
-    document.addEventListener('touchstart', function(e){ startX = e.touches[0].clientX; });
-    document.addEventListener('touchend', function(e){
+    slidesEl.addEventListener('touchstart', function(e){ startX = e.touches[0].clientX; }, {passive:true});
+    slidesEl.addEventListener('touchend', function(e){
       var diff = startX - e.changedTouches[0].clientX;
       if (Math.abs(diff) > 50) show(diff > 0 ? current + 1 : current - 1);
-    });
+    }, {passive:true});
   </script>
 </body>
 </html>`;
