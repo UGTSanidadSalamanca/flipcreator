@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import HTMLFlipBook from 'react-pageflip';
-import { BookOpen, Upload, ChevronLeft, ChevronRight, Share2, Loader2, Info } from 'lucide-react';
+import { BookOpen, Upload, ChevronLeft, ChevronRight, Download, Loader2, Share2 } from 'lucide-react';
 import './index.css';
 
 // Set up the PDF.js worker
@@ -15,7 +15,9 @@ function App() {
   const [dragActive, setDragActive] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [uploadStatus, setUploadStatus] = useState<string>('');
-  
+  const [docTitle, setDocTitle] = useState<string>('Mi Flipbook');
+  const [downloadReady, setDownloadReady] = useState(false);
+
   const flipBookRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -23,32 +25,22 @@ function App() {
     const urlParams = new URLSearchParams(window.location.search);
     const pdfName = urlParams.get('pdf');
     if (pdfName) {
-      // The pdf is expected to be in the public folder, so we just fetch it by its path
       const url = pdfName.startsWith('/') ? pdfName : `/${pdfName}`;
-      loadPdfFromUrl(url);
+      loadPdfFromUrl(url, pdfName);
     }
   }, []);
 
-  const loadPdfFromUrl = async (url: string) => {
+  const loadPdfFromUrl = async (url: string, name: string) => {
     setLoading(true);
     setUploadStatus('Cargando libro interactivo...');
-    try {
-      await extractPagesFromPdfUrl(url);
-    } catch (error) {
-      console.error("Error fetching PDF:", error);
-      alert("No se pudo cargar este libro. Asegúrate de que el archivo existe en la ruta correcta.");
-      setLoading(false);
-    }
-  };
-
-  const extractPagesFromPdfUrl = async (url: string) => {
+    setDocTitle(name.replace('.pdf', '').replace(/-/g, ' ').replace(/_/g, ' '));
     try {
       const loadingTask = pdfjsLib.getDocument(url);
       const pdf = await loadingTask.promise;
       await renderPdfPages(pdf);
     } catch (error) {
-      console.error("Error processing PDF URL:", error);
-      alert("Hubo un error al procesar el PDF.");
+      console.error('Error fetching PDF:', error);
+      alert('No se pudo cargar este libro. Asegúrate de que el archivo existe.');
       setLoading(false);
     }
   };
@@ -61,7 +53,7 @@ function App() {
       const page = await pdf.getPage(i);
       const scale = 1.5;
       const viewport = page.getViewport({ scale });
-      
+
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
       if (!context) continue;
@@ -69,25 +61,23 @@ function App() {
       canvas.height = viewport.height;
       canvas.width = viewport.width;
 
-      const renderContext = {
-        canvasContext: context,
-        viewport: viewport,
-      };
-
+      const renderContext: any = { canvasContext: context, viewport };
       await page.render(renderContext).promise;
       images.push(canvas.toDataURL('image/jpeg', 0.8));
-      
       setProgress(Math.round((i / numPages) * 100));
     }
-    
+
     setPages(images);
+    setDownloadReady(true);
     setLoading(false);
   };
 
   const extractPagesFromPdf = async (file: File) => {
     setLoading(true);
     setProgress(0);
-    setUploadStatus('Procesando páginas para vista previa...');
+    setDownloadReady(false);
+    setDocTitle(file.name.replace('.pdf', '').replace(/-/g, ' ').replace(/_/g, ' '));
+    setUploadStatus('Procesando páginas...');
     try {
       const arrayBuffer = await file.arrayBuffer();
       const loadingTask = pdfjsLib.getDocument(new Uint8Array(arrayBuffer));
@@ -97,37 +87,31 @@ function App() {
 
       for (let i = 1; i <= numPages; i++) {
         const page = await pdf.getPage(i);
-        // Set a more optimal scale to prevent memory crashes on large PDFs
         const scale = 1.2;
         const viewport = page.getViewport({ scale });
-        
+
         const canvas = document.createElement('canvas');
-        // willReadFrequently can help with memory management in some browsers
         const context = canvas.getContext('2d', { willReadFrequently: true });
         if (!context) continue;
 
         canvas.height = viewport.height;
         canvas.width = viewport.width;
 
-        const renderContext: any = {
-          canvasContext: context,
-          viewport: viewport,
-        };
-
+        const renderContext: any = { canvasContext: context, viewport };
         await page.render(renderContext).promise;
         images.push(canvas.toDataURL('image/jpeg', 0.7));
-        
-        // Free memory aggressively
+
         canvas.width = 0;
         canvas.height = 0;
         page.cleanup();
         setProgress(Math.round((i / numPages) * 100));
       }
-      
+
       setPages(images);
+      setDownloadReady(true);
     } catch (error) {
-      console.error("Error processing PDF:", error);
-      alert("Hubo un error al procesar el PDF. Por favor intenta de nuevo.");
+      console.error('Error processing PDF:', error);
+      alert('Hubo un error al procesar el PDF. Por favor intenta de nuevo.');
     } finally {
       setLoading(false);
       setUploadStatus('');
@@ -137,6 +121,8 @@ function App() {
   const processImages = (files: File[]) => {
     setLoading(true);
     setProgress(0);
+    setDownloadReady(false);
+    setDocTitle('Mi Flipbook');
     const images: string[] = [];
     let processed = 0;
 
@@ -148,9 +134,10 @@ function App() {
         }
         processed++;
         setProgress(Math.round((processed / files.length) * 100));
-        
+
         if (processed === files.length) {
           setPages(images.filter(Boolean));
+          setDownloadReady(true);
           setLoading(false);
         }
       };
@@ -160,17 +147,15 @@ function App() {
 
   const handleFiles = (files: FileList) => {
     if (files.length === 0) return;
-    
-    // Check if it's a single PDF
+
     if (files.length === 1 && files[0].type === 'application/pdf') {
       extractPagesFromPdf(files[0]);
     } else {
-      // Treat as multiple images
       const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
       if (imageFiles.length > 0) {
         processImages(imageFiles);
       } else {
-        alert("Por favor selecciona un archivo PDF o varias imágenes.");
+        alert('Por favor selecciona un archivo PDF o varias imágenes.');
       }
     }
   };
@@ -178,9 +163,9 @@ function App() {
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
+    if (e.type === 'dragenter' || e.type === 'dragover') {
       setDragActive(true);
-    } else if (e.type === "dragleave") {
+    } else if (e.type === 'dragleave') {
       setDragActive(false);
     }
   }, []);
@@ -199,34 +184,97 @@ function App() {
   };
 
   const nextButtonClick = () => {
-    if (flipBookRef.current) {
-      flipBookRef.current.pageFlip().flipNext();
-    }
+    if (flipBookRef.current) flipBookRef.current.pageFlip().flipNext();
   };
 
   const prevButtonClick = () => {
-    if (flipBookRef.current) {
-      flipBookRef.current.pageFlip().flipPrev();
-    }
+    if (flipBookRef.current) flipBookRef.current.pageFlip().flipPrev();
   };
 
-  const shareFlipbook = () => {
+  /**
+   * Generates a fully self-contained HTML flipbook file.
+   * The recipient only needs to open it in any browser — no internet needed.
+   */
+  const downloadShareableFlipbook = () => {
+    const pagesJson = JSON.stringify(pages);
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>${docTitle}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0f0f1a;font-family:system-ui,sans-serif;color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:1rem}
+    h1{margin:1.5rem 0 1rem;font-size:1.5rem;background:linear-gradient(135deg,#a78bfa,#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-align:center}
+    #flipbook{position:relative;width:100%;max-width:800px;margin:0 auto}
+    .page{overflow:hidden;background:#fff}
+    .page img{width:100%;height:100%;object-fit:contain;display:block}
+    .controls{display:flex;align-items:center;justify-content:center;gap:1.5rem;margin:1.5rem 0}
+    .btn{background:rgba(167,139,250,0.2);border:1px solid rgba(167,139,250,0.4);color:#fff;padding:0.6rem 1.5rem;border-radius:999px;cursor:pointer;font-size:1rem;transition:all 0.2s}
+    .btn:hover{background:rgba(167,139,250,0.4)}
+    .btn:disabled{opacity:0.3;cursor:not-allowed}
+    .indicator{font-size:0.9rem;color:#a78bfa;min-width:80px;text-align:center}
+    .footer{font-size:0.75rem;color:rgba(255,255,255,0.3);margin-top:2rem;text-align:center}
+    /* Simple slide-based flipbook for standalone HTML */
+    #slides{width:100%;max-width:800px;position:relative}
+    #slides .slide{display:none;border-radius:8px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
+    #slides .slide.active{display:block}
+    #slides .slide img{width:100%;height:auto;display:block}
+  </style>
+</head>
+<body>
+  <h1>📖 ${docTitle}</h1>
+  <div id="slides"></div>
+  <div class="controls">
+    <button class="btn" id="prev" onclick="changePage(-1)" disabled>◀ Anterior</button>
+    <span class="indicator" id="ind">1 / 1</span>
+    <button class="btn" id="next" onclick="changePage(1)">Siguiente ▶</button>
+  </div>
+  <div class="footer">Creado con FlipCreator PRO · Abre este archivo en cualquier navegador</div>
+  <script>
+    const pages = ${pagesJson};
+    let current = 0;
+    const container = document.getElementById('slides');
+    pages.forEach((src, i) => {
+      const div = document.createElement('div');
+      div.className = 'slide' + (i === 0 ? ' active' : '');
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = 'Página ' + (i+1);
+      div.appendChild(img);
+      container.appendChild(div);
+    });
+    function updateUI() {
+      document.querySelectorAll('.slide').forEach((s,i) => s.classList.toggle('active', i===current));
+      document.getElementById('ind').textContent = (current+1) + ' / ' + pages.length;
+      document.getElementById('prev').disabled = current === 0;
+      document.getElementById('next').disabled = current === pages.length - 1;
+    }
+    function changePage(dir) { current = Math.max(0, Math.min(pages.length-1, current+dir)); updateUI(); }
+    document.addEventListener('keydown', e => { if(e.key==='ArrowRight') changePage(1); if(e.key==='ArrowLeft') changePage(-1); });
+    updateUI();
+  </script>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${docTitle.replace(/\s+/g, '-').toLowerCase()}-flipbook.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const shareOrCopyLink = () => {
     const url = window.location.href;
     if (navigator.share) {
-      navigator.share({
-        title: 'Mi Flipbook Interactivo',
-        text: 'Mira este documento convertido en un libro interactivo.',
-        url: url,
-      }).catch(console.error);
+      navigator.share({ title: docTitle, text: '¡Mira este flipbook interactivo!', url }).catch(console.error);
     } else {
-      copyToClipboard();
+      navigator.clipboard.writeText(url);
+      alert('¡Enlace copiado al portapapeles!');
     }
-  };
-
-  const copyToClipboard = () => {
-    const url = window.location.href;
-    navigator.clipboard.writeText(url);
-    alert("¡Enlace copiado al portapapeles!");
   };
 
   return (
@@ -238,10 +286,16 @@ function App() {
             <span>FlipCreator PRO</span>
           </div>
           {pages.length > 0 && (
-            <button className="btn btn-primary" onClick={shareFlipbook}>
-              <Share2 size={18} />
-              Compartir en RRSS
-            </button>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button className="btn btn-primary" onClick={downloadShareableFlipbook}>
+                <Download size={18} />
+                Descargar para compartir
+              </button>
+              <button className="btn" onClick={shareOrCopyLink}>
+                <Share2 size={18} />
+                Copiar enlace
+              </button>
+            </div>
           )}
         </div>
       </header>
@@ -259,7 +313,7 @@ function App() {
         )}
 
         {pages.length === 0 && !loading ? (
-          <div 
+          <div
             className={`uploader ${dragActive ? 'drag-active' : ''}`}
             onDragEnter={handleDrag}
             onDragLeave={handleDrag}
@@ -270,12 +324,12 @@ function App() {
             <Upload size={48} className="uploader-icon" />
             <h2 className="uploader-title">Sube tu PDF o Imágenes</h2>
             <p className="uploader-text">
-              Arrastra y suelta aquí, o haz clic para seleccionar archivos.<br/>
-              Convertiremos tu documento en un libro interactivo automáticamente.
+              Arrastra y suelta aquí, o haz clic para seleccionar archivos.<br />
+              Convertiremos tu documento en un libro interactivo listo para compartir.
             </p>
-            <input 
-              type="file" 
-              className="hidden-input" 
+            <input
+              type="file"
+              className="hidden-input"
               ref={fileInputRef}
               onChange={(e) => e.target.files && handleFiles(e.target.files)}
               accept=".pdf,image/*"
@@ -289,10 +343,10 @@ function App() {
           pages.length > 0 && !loading && (
             <div className="flipbook-wrapper">
               <div className="flipbook-container">
-                {/* @ts-ignore - react-pageflip types might be missing some props */}
-                <HTMLFlipBook 
-                  width={400} 
-                  height={600} 
+                {/* @ts-ignore */}
+                <HTMLFlipBook
+                  width={400}
+                  height={600}
                   size="stretch"
                   minWidth={315}
                   maxWidth={1000}
@@ -312,73 +366,41 @@ function App() {
                   ))}
                 </HTMLFlipBook>
               </div>
-              
+
               <div className="controls">
-                <button 
-                  className="btn-icon" 
-                  onClick={prevButtonClick}
-                  disabled={currentPage === 0}
-                  aria-label="Página anterior"
-                >
+                <button className="btn-icon" onClick={prevButtonClick} disabled={currentPage === 0} aria-label="Página anterior">
                   <ChevronLeft size={24} />
                 </button>
                 <span className="page-indicator">
                   {currentPage + 1} / {pages.length}
                 </span>
-                <button 
-                  className="btn-icon" 
-                  onClick={nextButtonClick}
-                  disabled={currentPage >= pages.length - 1}
-                  aria-label="Página siguiente"
-                >
+                <button className="btn-icon" onClick={nextButtonClick} disabled={currentPage >= pages.length - 1} aria-label="Página siguiente">
                   <ChevronRight size={24} />
                 </button>
               </div>
 
-              <div className="glass-panel" style={{ textAlign: 'left', maxWidth: '700px', margin: '2rem auto' }}>
-                <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Info size={24} color="var(--primary)" />
-                  Vista previa local completada
-                </h3>
-                <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
-                  Estás viendo este libro en modo "Vista Previa Local". Como hemos configurado la aplicación para no requerir bases de datos (Opción 2), los PDFs no se suben a ninguna nube.
-                </p>
-                <div style={{ background: 'var(--bg)', padding: '1.5rem', borderRadius: 'var(--radius)', marginBottom: '1.5rem', border: '1px solid var(--border)' }}>
-                  <h4 style={{ marginBottom: '0.5rem' }}>¿Cómo comparto este libro con otros?</h4>
-                  <ol style={{ marginLeft: '1.5rem', color: 'var(--text-muted)' }}>
-                    <li style={{ marginBottom: '0.5rem' }}>Copia tu archivo PDF original y pégalo dentro de la carpeta <code>public</code> de este proyecto (por ejemplo, llámalo <code>mi-guia.pdf</code>).</li>
-                    <li style={{ marginBottom: '0.5rem' }}>Sube los cambios a GitHub para que Vercel actualice la web.</li>
-                    <li>¡Y ya está! Tu enlace público será:<br/>
-                      <strong style={{ color: 'var(--text)' }}>tu-web.vercel.app/?pdf=mi-guia.pdf</strong>
-                    </li>
-                  </ol>
+              {downloadReady && (
+                <div className="glass-panel" style={{ textAlign: 'center', maxWidth: '600px', margin: '2rem auto' }}>
+                  <h3 style={{ marginBottom: '0.75rem' }}>✅ ¡Tu flipbook está listo!</h3>
+                  <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
+                    Descarga el archivo HTML y envíalo por <strong>WhatsApp, email o Telegram</strong>.
+                    Quien lo reciba solo tiene que abrirlo con su móvil o navegador — sin instalar nada.
+                  </p>
+                  <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                    <button className="btn btn-primary" onClick={downloadShareableFlipbook}>
+                      <Download size={18} />
+                      Descargar flipbook (.html)
+                    </button>
+                    <button className="btn" onClick={() => {
+                      setPages([]);
+                      setDownloadReady(false);
+                      window.history.pushState({}, '', window.location.pathname);
+                    }}>
+                      Crear otro
+                    </button>
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-                  <button className="btn btn-primary" onClick={() => {
-                    const currentUrl = window.location.origin + window.location.pathname;
-                    const demoUrl = `${currentUrl}?pdf=nombre-de-tu-archivo.pdf`;
-                    if (navigator.share) {
-                      navigator.share({
-                        title: 'Mi Flipbook',
-                        text: 'Ejemplo de cómo sería el enlace para compartir',
-                        url: demoUrl,
-                      }).catch(console.error);
-                    } else {
-                      navigator.clipboard.writeText(demoUrl);
-                      alert(`Enlace de ejemplo copiado:\n\n${demoUrl}\n\n(Recuerda cambiar "tu-web.vercel.app" por tu dominio real de Vercel)`);
-                    }
-                  }}>
-                    <Share2 size={18} />
-                    Simular enlace final
-                  </button>
-                  <button className="btn" onClick={() => {
-                    setPages([]);
-                    window.history.pushState({}, '', window.location.pathname);
-                  }}>
-                    Cerrar vista previa
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
           )
         )}
