@@ -14,7 +14,6 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [dragActive, setDragActive] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   
   const flipBookRef = useRef<any>(null);
@@ -374,7 +373,6 @@ function App() {
                   </button>
                   <button className="btn" onClick={() => {
                     setPages([]);
-                    setShareUrl(null);
                     window.history.pushState({}, '', window.location.pathname);
                   }}>
                     Cerrar vista previa
