@@ -196,7 +196,11 @@ function App() {
    * The recipient only needs to open it in any browser — no internet needed.
    */
   const downloadShareableFlipbook = () => {
-    const pagesJson = JSON.stringify(pages);
+    // Build slides as direct <img> tags — no JSON parsing needed, works with any PDF size
+    const slides = pages.map((src, i) =>
+      `<div class="slide${i === 0 ? ' active' : ''}"><img src="${src}" alt="Página ${i + 1}" loading="lazy"/></div>`
+    ).join('\n');
+
     const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -205,55 +209,56 @@ function App() {
   <title>${docTitle}</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{background:#0f0f1a;font-family:system-ui,sans-serif;color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:1rem}
+    body{background:#0f0f1a;font-family:system-ui,sans-serif;color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:1rem}
     h1{margin:1.5rem 0 1rem;font-size:1.5rem;background:linear-gradient(135deg,#a78bfa,#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-align:center}
-    #flipbook{position:relative;width:100%;max-width:800px;margin:0 auto}
-    .page{overflow:hidden;background:#fff}
-    .page img{width:100%;height:100%;object-fit:contain;display:block}
+    #slides{width:100%;max-width:800px}
+    .slide{display:none;border-radius:8px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
+    .slide.active{display:block}
+    .slide img{width:100%;height:auto;display:block}
     .controls{display:flex;align-items:center;justify-content:center;gap:1.5rem;margin:1.5rem 0}
     .btn{background:rgba(167,139,250,0.2);border:1px solid rgba(167,139,250,0.4);color:#fff;padding:0.6rem 1.5rem;border-radius:999px;cursor:pointer;font-size:1rem;transition:all 0.2s}
     .btn:hover{background:rgba(167,139,250,0.4)}
     .btn:disabled{opacity:0.3;cursor:not-allowed}
     .indicator{font-size:0.9rem;color:#a78bfa;min-width:80px;text-align:center}
     .footer{font-size:0.75rem;color:rgba(255,255,255,0.3);margin-top:2rem;text-align:center}
-    /* Simple slide-based flipbook for standalone HTML */
-    #slides{width:100%;max-width:800px;position:relative}
-    #slides .slide{display:none;border-radius:8px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
-    #slides .slide.active{display:block}
-    #slides .slide img{width:100%;height:auto;display:block}
   </style>
 </head>
 <body>
   <h1>📖 ${docTitle}</h1>
-  <div id="slides"></div>
-  <div class="controls">
-    <button class="btn" id="prev" onclick="changePage(-1)" disabled>◀ Anterior</button>
-    <span class="indicator" id="ind">1 / 1</span>
-    <button class="btn" id="next" onclick="changePage(1)">Siguiente ▶</button>
+  <div id="slides">
+${slides}
   </div>
-  <div class="footer">Creado con FlipCreator PRO · Abre este archivo en cualquier navegador</div>
+  <div class="controls">
+    <button class="btn" id="prev" disabled>◀ Anterior</button>
+    <span class="indicator" id="ind">1 / ${pages.length}</span>
+    <button class="btn" id="next">Siguiente ▶</button>
+  </div>
+  <div class="footer">Creado con FlipCreator PRO · ${pages.length} páginas · Abre este archivo en cualquier navegador</div>
   <script>
-    const pages = ${pagesJson};
-    let current = 0;
-    const container = document.getElementById('slides');
-    pages.forEach((src, i) => {
-      const div = document.createElement('div');
-      div.className = 'slide' + (i === 0 ? ' active' : '');
-      const img = document.createElement('img');
-      img.src = src;
-      img.alt = 'Página ' + (i+1);
-      div.appendChild(img);
-      container.appendChild(div);
-    });
-    function updateUI() {
-      document.querySelectorAll('.slide').forEach((s,i) => s.classList.toggle('active', i===current));
-      document.getElementById('ind').textContent = (current+1) + ' / ' + pages.length;
+    var slides = document.querySelectorAll('.slide');
+    var current = 0;
+    var total = slides.length;
+    function show(n) {
+      slides[current].classList.remove('active');
+      current = Math.max(0, Math.min(total - 1, n));
+      slides[current].classList.add('active');
+      document.getElementById('ind').textContent = (current + 1) + ' / ' + total;
       document.getElementById('prev').disabled = current === 0;
-      document.getElementById('next').disabled = current === pages.length - 1;
+      document.getElementById('next').disabled = current === total - 1;
     }
-    function changePage(dir) { current = Math.max(0, Math.min(pages.length-1, current+dir)); updateUI(); }
-    document.addEventListener('keydown', e => { if(e.key==='ArrowRight') changePage(1); if(e.key==='ArrowLeft') changePage(-1); });
-    updateUI();
+    document.getElementById('prev').addEventListener('click', function(){ show(current - 1); });
+    document.getElementById('next').addEventListener('click', function(){ show(current + 1); });
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'ArrowRight') show(current + 1);
+      if (e.key === 'ArrowLeft') show(current - 1);
+    });
+    // Touch swipe support
+    var startX = 0;
+    document.addEventListener('touchstart', function(e){ startX = e.touches[0].clientX; });
+    document.addEventListener('touchend', function(e){
+      var diff = startX - e.changedTouches[0].clientX;
+      if (Math.abs(diff) > 50) show(diff > 0 ? current + 1 : current - 1);
+    });
   </script>
 </body>
 </html>`;
