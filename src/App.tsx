@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import HTMLFlipBook from 'react-pageflip';
-import { BookOpen, Upload, ChevronLeft, ChevronRight, Download, Loader2, Share2 } from 'lucide-react';
+import { BookOpen, Upload, ChevronLeft, ChevronRight, Download, Loader2, Share2, Globe, Copy, Check, ExternalLink } from 'lucide-react';
 import './index.css';
 
 // Set up the PDF.js worker
@@ -17,6 +17,13 @@ function App() {
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [docTitle, setDocTitle] = useState<string>('Mi Flipbook');
   const [downloadReady, setDownloadReady] = useState(false);
+  const NETLIFY_TOKEN = 'nfp_jYq5ghfW2eCPCJJSminqeB5TejxAkfkZ3d71';
+  const [netlifyToken, setNetlifyToken] = useState<string>(() => localStorage.getItem('netlify_token') || NETLIFY_TOKEN);
+
+  const [netlifyUrl, setNetlifyUrl] = useState<string>('');
+  const [netlifyUploading, setNetlifyUploading] = useState(false);
+  const [netlifyError, setNetlifyError] = useState<string>('');
+  const [copied, setCopied] = useState(false);
 
   const flipBookRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -283,6 +290,170 @@ ${slides}
     }
   };
 
+  /** Builds the HTML blob (same as download but returns the Blob) */
+  const buildFlipbookBlob = (): Blob => {
+    const slides = pages.map((src, i) =>
+      `<div class="slide${i === 0 ? ' active' : ''}"><img src="${src}" alt="Página ${i + 1}" loading="lazy"/></div>`
+    ).join('\n');
+
+    const html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>${docTitle}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0f0f1a;font-family:system-ui,sans-serif;color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:1rem}
+    h1{margin:1.5rem 0 1rem;font-size:1.5rem;background:linear-gradient(135deg,#a78bfa,#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-align:center}
+    #slides{width:100%;max-width:800px}
+    .slide{display:none;border-radius:8px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
+    .slide.active{display:block}
+    .slide img{width:100%;height:auto;display:block}
+    .controls{display:flex;align-items:center;justify-content:center;gap:1.5rem;margin:1.5rem 0}
+    .btn{background:rgba(167,139,250,0.2);border:1px solid rgba(167,139,250,0.4);color:#fff;padding:0.6rem 1.5rem;border-radius:999px;cursor:pointer;font-size:1rem;transition:all 0.2s}
+    .btn:hover{background:rgba(167,139,250,0.4)}
+    .btn:disabled{opacity:0.3;cursor:not-allowed}
+    .indicator{font-size:0.9rem;color:#a78bfa;min-width:80px;text-align:center}
+    .footer{font-size:0.75rem;color:rgba(255,255,255,0.3);margin-top:2rem;text-align:center}
+  </style>
+</head>
+<body>
+  <h1>📖 ${docTitle}</h1>
+  <div id="slides">
+${slides}
+  </div>
+  <div class="controls">
+    <button class="btn" id="prev" disabled ontouchend="this.click()">◀ Anterior</button>
+    <span class="indicator" id="ind">1 / ${pages.length}</span>
+    <button class="btn" id="next" ontouchend="this.click()">Siguiente ▶</button>
+  </div>
+  <div class="footer">Creado con FlipCreator PRO · ${pages.length} páginas · Abre este archivo en cualquier navegador</div>
+  <script>
+    var slides = document.querySelectorAll('.slide');
+    var current = 0;
+    var total = slides.length;
+    function show(n) {
+      slides[current].classList.remove('active');
+      current = Math.max(0, Math.min(total - 1, n));
+      slides[current].classList.add('active');
+      document.getElementById('ind').textContent = (current + 1) + ' / ' + total;
+      document.getElementById('prev').disabled = current === 0;
+      document.getElementById('next').disabled = current === total - 1;
+    }
+    document.getElementById('prev').addEventListener('click', function(e){ e.preventDefault(); show(current - 1); });
+    document.getElementById('next').addEventListener('click', function(e){ e.preventDefault(); show(current + 1); });
+    document.addEventListener('keydown', function(e){
+      if (e.key === 'ArrowRight') show(current + 1);
+      if (e.key === 'ArrowLeft') show(current - 1);
+    });
+    var slidesEl = document.getElementById('slides');
+    var startX = 0;
+    slidesEl.addEventListener('touchstart', function(e){ startX = e.touches[0].clientX; }, {passive:true});
+    slidesEl.addEventListener('touchend', function(e){
+      var diff = startX - e.changedTouches[0].clientX;
+      if (Math.abs(diff) > 50) show(diff > 0 ? current + 1 : current - 1);
+    }, {passive:true});
+  <\/script>
+</body>
+</html>`;
+    return new Blob([html], { type: 'text/html' });
+  };
+
+  /**
+   * Uploads the flipbook HTML to Netlify via the Deploy Files API.
+   * Creates a new site each time and returns the public URL.
+   */
+  const uploadToNetlify = async () => {
+    setNetlifyUploading(true);
+    setNetlifyError('');
+    setNetlifyUrl('');
+
+    try {
+      const blob = buildFlipbookBlob();
+      const htmlText = await blob.text();
+
+      // Step 1: Create a new Netlify site
+      const siteRes = await fetch('https://api.netlify.com/api/v1/sites', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${netlifyToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: `flipbook-${docTitle.replace(/\s+/g, '-').toLowerCase().replace(/[^a-z0-9-]/g, '')}-${Date.now()}`,
+        }),
+      });
+
+      if (!siteRes.ok) {
+        const err = await siteRes.json();
+        throw new Error(err.message || `Error al crear sitio: ${siteRes.status}`);
+      }
+
+      const site = await siteRes.json();
+      const siteId = site.id;
+
+      // Step 2: Compute SHA1 of the HTML file for the deploy manifest
+      const encoder = new TextEncoder();
+      const data = encoder.encode(htmlText);
+      const hashBuffer = await crypto.subtle.digest('SHA-1', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const sha1 = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      // Step 3: Create deploy with file manifest
+      const deployRes = await fetch(`https://api.netlify.com/api/v1/sites/${siteId}/deploys`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${netlifyToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          files: { '/index.html': sha1 },
+          async: false,
+        }),
+      });
+
+      if (!deployRes.ok) {
+        const err = await deployRes.json();
+        throw new Error(err.message || `Error al crear deploy: ${deployRes.status}`);
+      }
+
+      const deploy = await deployRes.json();
+      const deployId = deploy.id;
+
+      // Step 4: Upload the HTML file
+      const uploadRes = await fetch(
+        `https://api.netlify.com/api/v1/deploys/${deployId}/files/index.html`,
+        {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${netlifyToken}`,
+            'Content-Type': 'application/octet-stream',
+          },
+          body: blob,
+        }
+      );
+
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json();
+        throw new Error(err.message || `Error al subir archivo: ${uploadRes.status}`);
+      }
+
+      setNetlifyUrl(`https://${site.subdomain}.netlify.app`);
+    } catch (err: any) {
+      console.error('Netlify upload error:', err);
+      setNetlifyError(err.message || 'Error desconocido al subir a Netlify.');
+    } finally {
+      setNetlifyUploading(false);
+    }
+  };
+
+  const copyNetlifyUrl = () => {
+    navigator.clipboard.writeText(netlifyUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
+
   return (
     <div className="app-container">
       <header className="header">
@@ -386,11 +557,85 @@ ${slides}
               </div>
 
               {downloadReady && (
-                <div className="glass-panel" style={{ textAlign: 'center', maxWidth: '600px', margin: '2rem auto' }}>
+                <div className="glass-panel" style={{ textAlign: 'center', maxWidth: '640px', margin: '2rem auto' }}>
                   <h3 style={{ marginBottom: '0.75rem' }}>✅ ¡Tu flipbook está listo!</h3>
-                  <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
-                    Descarga el archivo HTML y envíalo por <strong>WhatsApp, email o Telegram</strong>.
-                    Quien lo reciba solo tiene que abrirlo con su móvil o navegador — sin instalar nada.
+
+                  {/* ── Netlify publish section ── */}
+                  <div style={{
+                    background: 'rgba(96,165,250,0.08)',
+                    border: '1px solid rgba(96,165,250,0.25)',
+                    borderRadius: '12px',
+                    padding: '1.25rem',
+                    marginBottom: '1.5rem',
+                  }}>
+                    <p style={{ fontWeight: 600, marginBottom: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}>
+                      <Globe size={16} /> Publicar con enlace compartible (Netlify)
+                    </p>
+
+                    {/* Publish button */}
+                    {!netlifyUrl && (
+                      <button
+                        id="btn-publish-netlify"
+                        className="btn btn-primary"
+                        onClick={uploadToNetlify}
+                        disabled={netlifyUploading}
+                        style={{ width: '100%' }}
+                      >
+                        {netlifyUploading
+                          ? <><Loader2 size={16} className="spinner" style={{ display: 'inline-block', marginRight: '0.4rem' }} />Publicando…</>
+                          : <><Globe size={16} />Publicar y obtener enlace</>}
+                      </button>
+                    )}
+
+                    {/* Error */}
+                    {netlifyError && (
+                      <p style={{ color: '#f87171', fontSize: '0.82rem', marginTop: '0.6rem' }}>⚠️ {netlifyError}</p>
+                    )}
+
+                    {/* Success: show URL */}
+                    {netlifyUrl && (
+                      <div style={{ marginTop: '0.5rem' }}>
+                        <p style={{ fontSize: '0.82rem', color: '#86efac', marginBottom: '0.6rem' }}>🎉 ¡Publicado! Comparte este enlace:</p>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          background: 'rgba(255,255,255,0.06)',
+                          border: '1px solid rgba(255,255,255,0.15)',
+                          borderRadius: '8px',
+                          padding: '0.5rem 0.75rem',
+                        }}>
+                          <a href={netlifyUrl} target="_blank" rel="noreferrer"
+                            style={{ color: '#60a5fa', fontSize: '0.88rem', flex: 1, wordBreak: 'break-all', textAlign: 'left' }}>
+                            {netlifyUrl}
+                          </a>
+                          <button
+                            id="btn-copy-netlify-url"
+                            onClick={copyNetlifyUrl}
+                            title="Copiar enlace"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: copied ? '#86efac' : '#a78bfa', flexShrink: 0 }}
+                          >
+                            {copied ? <Check size={18} /> : <Copy size={18} />}
+                          </button>
+                          <a href={netlifyUrl} target="_blank" rel="noreferrer"
+                            style={{ color: '#a78bfa', flexShrink: 0 }}>
+                            <ExternalLink size={18} />
+                          </a>
+                        </div>
+                        <button
+                          className="btn"
+                          style={{ marginTop: '0.75rem', fontSize: '0.8rem', padding: '0.35rem 1rem' }}
+                          onClick={() => { setNetlifyUrl(''); setNetlifyError(''); }}
+                        >
+                          Publicar otra versión
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ── Download / restart ── */}
+                  <p style={{ color: 'var(--text-muted)', marginBottom: '1rem', fontSize: '0.88rem' }}>
+                    O descarga el HTML y envíalo por <strong>WhatsApp, email o Telegram</strong>.
                   </p>
                   <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
                     <button className="btn btn-primary" onClick={downloadShareableFlipbook}>
@@ -400,6 +645,8 @@ ${slides}
                     <button className="btn" onClick={() => {
                       setPages([]);
                       setDownloadReady(false);
+                      setNetlifyUrl('');
+                      setNetlifyError('');
                       window.history.pushState({}, '', window.location.pathname);
                     }}>
                       Crear otro
